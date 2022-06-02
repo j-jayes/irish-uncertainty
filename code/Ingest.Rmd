@@ -1,11 +1,11 @@
 ---
-title: "Ingest v1"
+title: "Irish Times v1"
 author: "JJayes"
 date: '2022-06-02'
 output: 
     html_document:
         toc: true
-        toc_depth: 2
+        toc_depth: 3
         toc_float: true
         code_folding: show
     
@@ -19,7 +19,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
 
 There are perhaps two ways to do this. First is to access the information served back from the javascript container on the proquest website. This would be possible, if a bit finicky, with a client side scraping tool as described by Grant McDermott [here](https://raw.githack.com/uo-ec510-2020-spring/lectures/master/08-web-api/08-web-api.html).
 
-We can also try a different API meant for batch requests.
+We can also try a different API meant for batch requests. That's the process I follow below.
 
 ### Proquest API
 
@@ -92,7 +92,7 @@ html <- read_html(all_together)
 Looking at it in the browser shows that each record comes back under a section called "recordData".
 
 ```{r, fig.cap="Screenshot of WSJ query in browser"}
-knitr::include_graphics("images/html_return_wsj.PNG")
+knitr::include_graphics("https://raw.githubusercontent.com/j-jayes/irish-uncertainty/main/images/html_return_wsj.PNG")
 ```
 
 It looks like tag 245 is the title text.
@@ -200,7 +200,7 @@ list$records[[2]] %>% listviewer::jsonedit()
 # list$records[[4]]$recordData$record[[8]]
 ```
 
-The enframe() command makes a nice tibble of the different elements that we can filter down and the extract information from.
+The `enframe()` command makes a nice tibble of the different elements that we can filter down and the extract information from.
 
 ```{r}
 pluck(list, "records", 2, "recordData", "record") %>% 
@@ -220,6 +220,6 @@ pluck(list, "records", 2, "recordData", "record") %>%
     unnest_wider(subfield)
 ```
 
-## Conclusion
+### Conclusion
 
 It is as much an art as skill, and I am sure that with a bit of effor you will be able to get back uncertainty related information from the irish times section of the API. I have run out of time at this point, but I think it is possible to follow along from the blog post and scraping code on Github.
