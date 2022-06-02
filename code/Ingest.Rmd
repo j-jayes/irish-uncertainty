@@ -4,11 +4,16 @@ author: "JJayes"
 date: '2022-06-02'
 output: 
     html_document:
+        theme: journal
+        highlight: haddock
         toc: true
         toc_depth: 3
         toc_float: true
         code_folding: show
-    
+urlcolor: blue
+mainfont: cochineal
+sansfont: Fira Sans
+monofont: Fira Code    
 ---
 
 ```{r setup, include=FALSE}
