@@ -1,0 +1,225 @@
+---
+title: "Ingest v1"
+author: "JJayes"
+date: '2022-06-02'
+output: 
+    html_document:
+        toc: true
+        toc_depth: 2
+        toc_float: true
+        code_folding: show
+    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+```
+
+## Irish times
+
+There are perhaps two ways to do this. First is to access the information served back from the javascript container on the proquest website. This would be possible, if a bit finicky, with a client side scraping tool as described by Grant McDermott [here](https://raw.githack.com/uo-ec510-2020-spring/lectures/master/08-web-api/08-web-api.html).
+
+We can also try a different API meant for batch requests.
+
+### Proquest API
+
+Apparently there is an API that kinda works and serves back XML files. Let's give it a go:
+
+It is based at a URL called [fedsearch](fedsearch.proquest.com)
+
+I found a [blogpost](https://bibwild.wordpress.com/2014/02/17/a-proquest-platform-api/) that details a working example from 2021 - yay!! There is also a useful web scraper coded in R from a [Github user called wanting0wang here](https://github.com/wanting0wang/WebScrapper-for-Academic-Databases/blob/master/web_scrapper.R). It looks useful as a start at least to work from!
+
+This is the example given in the blogpost.
+
+```{r}
+link <- "http://fedsearch.proquest.com/search/sru/pqdtft?operation=searchRetrieve&version=1.2&maximumRecords=30&startRecord=1&query=title%3D%22global%20warming%22%20AND%20author%3DCastet"
+```
+
+It doesn't work for me because I don't have access to the database called "pqdtft"
+
+let's deconstruct this into different parts
+
+```{r}
+library(tidyverse)
+base <- "http://fedsearch.proquest.com/search/sru/"
+
+db <- "pqdtft"
+
+operation <- "?operation=searchRetrieve&version=1.2&maximumRecords=30&startRecord=1"
+
+query <- "&query=title%3D%22global%20warming%22%20AND%20author%3DCastet"
+
+all_together <- str_c(base, db, operation, query)
+```
+
+Trying this in our browser gets an error that reads:
+
+<blockquote>
+
+Authentication failure: subscription for account 12187 contains no databases which match SRU database alias 'pqdtft'. The subscription for this account contains: Academic databases - africannews anznews asianews canadiannews cbs60m chicagotribune coronavirus daai ebookcentral1 ed eeb1 eeb2 eeb3 eebo ep2 europeannews fiaf globalwires hispanicnews latimes latinamericanews1 llba middleeastnews midwestnews1 northcentralnews northeastnews1 nytimes publiccontent southcentralnews southeastnews vogue wallstreetjournal washingtonpost westnews;
+
+</blockquote>
+
+So let's try wallstreetjournal (one that I have access to, you should just change it to the Irish times), and shorten the query to just title for the moment.
+
+```{r}
+db <- "wallstreetjournal"
+
+query_stub <- "&query=title%3D%22"
+# %3D%22global%20warming
+
+query_string <- "global warming"
+
+query_string <- URLencode(query_string)
+
+query <- str_c(query_stub, query_string)
+
+all_together <- str_c(base, db, operation, query)
+
+all_together
+```
+
+### HTML parsing with rvest
+
+Now we can get the result inside of R with the [**rvest** package](https://rvest.tidyverse.org/articles/harvesting-the-web.html) and the `read_html()` command.
+
+```{r}
+library(rvest)
+
+html <- read_html(all_together)
+```
+
+Looking at it in the browser shows that each record comes back under a section called "recordData".
+
+```{r, fig.cap="Screenshot of WSJ query in browser"}
+knitr::include_graphics("images/html_return_wsj.PNG")
+```
+
+It looks like tag 245 is the title text.
+
+```{r}
+html %>% 
+    html_elements('[tag="245"]') %>% 
+    html_text() %>% 
+    as_tibble() %>% 
+    rename(title = value)
+```
+
+This looks great - let's try and make a function on this.
+
+It is passed an html file, gets the title, author, text, date and theme tags and stores them in a tibble, which is returned to the user.
+
+```{r}
+get_results <- function(html) {
+  get_tag_text <- function(tag_num) {
+    html %>%
+      html_nodes(glue::glue("[tag='{tag_num}']")) %>%
+      html_text()
+  }
+
+  title <- get_tag_text("245") %>% as_tibble() %>% nest(title = everything())
+
+  author <- get_tag_text("100") %>% as_tibble() %>% nest(author = everything())
+  
+  text <- get_tag_text("520") %>% as_tibble() %>% nest(text = everything())
+  
+  date <- get_tag_text("260") %>% as_tibble() %>% nest(date = everything())
+  
+  themes <- get_tag_text("653") %>% as_tibble() %>% nest(themes = everything())
+
+  tibble(title, author, text, date, themes)
+}
+```
+
+We can use the function on the html from above, the WSJ query about global warming (results limited to 30) and visualize the dates on which the articles were written.
+
+```{r}
+df <- get_results(html)
+
+df %>%
+  unnest(date) %>%
+  mutate(
+    date = str_remove(value, "Dow Jones & Company Inc"),
+    date = lubridate::mdy(date)
+  ) %>%
+  ggplot(aes(date)) +
+  geom_histogram() +
+  labs(
+    x = "Date",
+    y = "Number of articles"
+  )
+
+```
+
+The problem is that we do not preserve structure. That means we lose the association between the elements. If we need only the date and the text, this might not be a problem, but there might be another way to do this, getting the results back as a XML list.
+
+### XML results and parsing with purrr
+
+"Extensible Markup Language (XML) is a markup language and file format for storing, transmitting, and reconstructing arbitrary data." [wikipedia](https://en.wikipedia.org/wiki/XML). Parsing the data in this way will help us keep the structure of elements associated with each other.
+
+```{r}
+xml <- XML::xmlParse(all_together)
+
+class(xml)
+```
+
+Now we get back an XML document. We can convert it to a list and then parse it with a package called listviewer.
+
+```{r}
+list <- xml %>% 
+    XML::xmlToList(simplify = T)
+
+class(list)
+```
+
+The [**listviewer** package](https://github.com/timelyportfolio/listviewer) makes it easy to visualize and interact with the data within R.
+
+```{r}
+listviewer::jsonedit(list)
+```
+
+Here we see the structure of the returned object. There are 479 records, and we have asked for the first 30.
+
+Then there are the record results, and some metadata that is returned under extraResponseData, including the codes and names of the databases I have access to through Lund University.
+
+This guide from [Thomas Mock](https://themockup.blog/posts/2020-05-22-parsing-json-in-r-with-jsonlite/) is super useful on how to parse the lists we get back and how to view them in R. Look towards the bottom of the post where he uses the [**purrr** package](https://purrr.tidyverse.org/).
+
+Let's try to get some of the data back that we care about.
+
+Start by getting to the list of records:
+
+```{r}
+list$records %>% listviewer::jsonedit()
+```
+
+We can access the data from individual records with the double braces, or the `pluck` command from the [**purrr** package](https://purrr.tidyverse.org/).
+
+```{r}
+list$records[[2]] %>% listviewer::jsonedit()
+
+# list$records[[4]]$recordData$record[[8]]
+```
+
+The enframe() command makes a nice tibble of the different elements that we can filter down and the extract information from.
+
+```{r}
+pluck(list, "records", 2, "recordData", "record") %>% 
+    enframe()
+```
+
+Such that we can get exactly what we want from each with some clever parsing and saving of the data into a nice rectangular dataframe that we can save.
+
+```{r}
+pluck(list, "records", 2, "recordData", "record") %>% 
+    # this command is great! wow!
+    enframe() %>% 
+    filter(name == "datafield") %>% 
+    unnest_wider(value) %>% 
+    select(subfield) %>% 
+    unnest(subfield) %>% 
+    unnest_wider(subfield)
+```
+
+## Conclusion
+
+It is as much an art as skill, and I am sure that with a bit of effor you will be able to get back uncertainty related information from the irish times section of the API. I have run out of time at this point, but I think it is possible to follow along from the blog post and scraping code on Github.

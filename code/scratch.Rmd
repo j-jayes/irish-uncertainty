@@ -1,0 +1,39 @@
+---
+title: "test"
+author: "JJayes"
+date: '2022-06-02'
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(jsonlite)
+library(httr)
+
+# link to the API output as a JSON file
+url_json <- "https://site.web.api.espn.com/apis/fitt/v3/sports/football/nfl/qbr?region=us&lang=en&qbrType=seasons&seasontype=2&isqualified=true&sort=schedAdjQBR%3Adesc&season=2019"
+
+# get the raw json into R
+raw_json <- httr::GET(url_json) %>% 
+  httr::content()
+
+# get names of the QBR categories
+category_names <- pluck(raw_json, "categories", 1, "labels") %>% tolower()
+
+
+# create the dataframe and tidy it up
+ex_output <- pluck(raw_json, "athletes") %>%
+  enframe() %>%
+  unnest_wider(value) %>% 
+  unnest_wider(athlete) %>% 
+  select(displayName, teamName:teamShortName, headshot, categories) %>% 
+  hoist(categories, 
+    data = list(1, "totals")) %>%
+  mutate(data = map(data, ~set_names(.x, nm = category_names))) %>% 
+  select(-categories) %>% 
+  unnest_wider(data) %>% 
+  mutate(headshot = pluck(headshot, "href"))
+
+glimpse(ex_output)
+```
+
