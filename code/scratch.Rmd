@@ -37,3 +37,17 @@ ex_output <- pluck(raw_json, "athletes") %>%
 glimpse(ex_output)
 ```
 
+
+
+```{r}
+library(rvest)
+
+url <- "https://www.proquest.com/results/6FF7FF5490424607PQ/1?accountid=12187"
+
+html <- read_html(url)
+
+```
+
+
+
+
