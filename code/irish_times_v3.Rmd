@@ -1,0 +1,121 @@
+---
+title: "Irish Times v3"
+author: "JJayes"
+date: '2022-06-02'
+output: 
+    html_document:
+        theme: journal
+        highlight: haddock
+        toc: true
+        toc_depth: 3
+        toc_float: true
+        code_folding: show
+urlcolor: blue
+mainfont: cochineal
+sansfont: Fira Sans
+monofont: Fira Code    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+```
+
+## Irish times
+
+There are three steps: 
+
+1. Construct query
+1. Test that query works
+1. Get the result of the query into R and extract information you want from it.
+
+### Construct query
+
+```{r}
+library(tidyverse)
+base <- "http://fedsearch.proquest.com/search/sru/"
+
+# I can't use Irish times, instead I'll use globalwires
+db <- "globalwires"
+
+operation <- "?operation=searchRetrieve&version=1.2&maximumRecords=30&startRecord=1"
+
+query_stub <- "&query=title%3D%22"
+
+query_string <- "economic uncertainty"
+
+query_string <- URLencode(query_string)
+
+query <- str_c(query_stub, query_string)
+
+all_together <- str_c(base, db, operation, query)
+
+all_together
+```
+
+### Test that query works
+
+Now the URL in a browser should return a page that looks like this: 
+
+```{r, fig.cap="Screenshot of WSJ query in browser"}
+knitr::include_graphics("https://raw.githubusercontent.com/j-jayes/irish-uncertainty/main/images/html_return_wsj.PNG")
+```
+
+The image above is from my browser, when I paste in the URL from all_together into my browser.
+
+### Get the result of the query into R
+
+To read this HTML into R, you can use the rvest package and the `read_html` command.
+
+#### Using HTML and rvest
+
+```{r}
+library(rvest)
+html <-read_html(all_together)
+
+html
+```
+
+This html document can be parsed with the `rvest` package where you choose the elements of the list you want with `html_elements`. 
+
+```{r}
+html %>% 
+    html_elements('[tag="245"]') %>% 
+    html_text() %>% 
+    as_tibble() %>% 
+    rename(title = value)
+```
+
+#### Using XML and the listviewer package.
+
+Alternatively you can use XML 
+
+```{r}
+library(XML)
+
+xml <- XML::xmlParse(all_together)
+
+list <- xml %>% 
+    XML::xmlToList(simplify = T)
+
+listviewer::jsonedit(list)
+```
+
+You then need to fiddle with the pluck command to get out the information you want into a dataframe. See the  guide from Thomas Mock:
+
+<blockquote>
+
+This guide from [Thomas Mock](https://themockup.blog/posts/2020-05-22-parsing-json-in-r-with-jsonlite/) is super useful on how to parse the lists we get back and how to view them in R. Look towards the bottom of the post where he uses the [**purrr** package](https://purrr.tidyverse.org/).
+
+</blockquote>
+
+```{r}
+pluck(list, "records", 2, "recordData", "record") %>% 
+    # this command is great! wow!
+    enframe() %>% 
+    filter(name == "datafield") %>% 
+    unnest_wider(value) %>% 
+    select(subfield) %>% 
+    unnest(subfield) %>% 
+    unnest_wider(subfield)
+```
+
